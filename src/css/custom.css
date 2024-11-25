@@ -119,6 +119,7 @@ pre.shiki.nord > .code-container > code {
 
 article .markdown a {
   text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
 
 /* Sidebar */

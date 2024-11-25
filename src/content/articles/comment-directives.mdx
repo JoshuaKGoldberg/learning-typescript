@@ -1,0 +1,389 @@
+---
+date: "November 29 2024"
+description: "// @ts-expect-error, // @ts-ignore, and other comments that direct how TypeScript's type checking works."
+meta: comments, directives, ts-check, ts-expect-error, ts-ignore, ts-nocheck
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# Comment Directives
+
+A _comment directive_ is a _comment_ that _directs_ (changes) how a tool operates within a file.
+TypeScript includes several comment directives that can change type checking behavior for a file or on a specific line.
+
+One comment directive sometimes used in TypeScript files is `// @ts-expect-error`, which suppresses type checking for a single line:
+
+```ts
+// @ts-expect-error
+let value: number = "oops!"; // No type error ✅
+```
+
+This might seem counterintuitive: if a project already decided to use TypeScript's type checking, why disable it?
+
+Rare cases do exist when TypeScript's type checking needs to be suppressed in a small area of code.
+This post will explain the kinds of comment directives supported by TypeScript: why they exist, what they do, and how to use use them.
+
+## TypeScript's Comment Directives
+
+TypeScript's type checker is not always correct.
+There are rare edge cases when its understanding of types in code doesn't perfectly match reality.
+For example:
+
+- Type definitions outside of your control might not be correct
+- Writing the correct types for some area of code might be too time consuming at the moment
+- There might be a transient bug or missing feature in TypeScript itself that prevents it from fully understanding code as written
+
+In rare cases such as those, it can be necessary as a last-ditch resort to ignore a type error reported by TypeScript.
+TypeScript provides two comment directives that can ignore a type error on a line: `// @ts-expect-error` and `// @ts-ignore`.
+
+### `@ts-expect-error`
+
+`// @ts-expect-error` is a comment directive that tells TypeScript to ignore any type errors on the next line of code.
+It's made to be used when TypeScript would report a type error even though code is written correctly.
+
+Suppose you know a global `process` function exists that should take in a `string` parameter, but its types incorrectly describe it as taking in `number`.
+If you were to call `process` with a value of type `string`, TypeScript would report a type error:
+
+```ts twoslash
+// @errors: 2345
+
+declare function process(data: number): void;
+
+process("abc");
+```
+
+In this case, you know that TypeScript is wrong to report a type error on `process("abc")`.
+It's the types that are incorrect -- not the runtime code.
+You need a way to direct TypeScript to ignore that line.
+
+Adding a `// @ts-expect-error` comment directive before the offending line would remove the type error:
+
+```ts twoslash
+declare function process(data: number): void;
+
+// @ts-expect-error
+process("abc"); // No type error ✅
+```
+
+:::caution
+It is almost always better to correct type definitions rather than use comment directives.
+[Avoiding Comment Directives](#avoiding-comment-directives) covers several preferable strategies.
+:::
+
+`// @ts-expect-error` is only meant to be used before lines that have a TypeScript type error.
+If the line after the comment does not have a type error, then TypeScript will report a new type error on the unnecessary `// @ts-expect-error`.
+
+If, say, the `process` function's types were to be corrected to indicate `data` is type `string`, then `process("abc")` would no longer contain a type error.
+TypeScript would then report that any preceding `// @ts-expect-error` is unnecessary.
+Once a `// @ts-expect-error` comment directive is unnecessary, you can delete it.
+
+<Tabs>
+<TabItem value="❌ Incorrect">
+
+```ts twoslash
+// @errors: 2578
+declare function process(data: string): void;
+
+// @ts-expect-error
+process("abc"); // No type error ✅
+```
+
+</TabItem>
+<TabItem value="✅ Correct">
+
+```ts twoslash
+declare function process(data: string): void;
+
+process("abc"); // No type error ✅
+```
+
+</TabItem>
+</Tabs>
+
+### `@ts-ignore`
+
+`// @ts-ignore` is the same as `// @ts-expect-error`, but it is allowed to exist even if it doesn't suppress an existing type error.
+A `// @ts-ignore` above a line with no type errors will not trigger TypeScript to report a type error.
+
+The following example places a `// @ts-ignore` above a `process("abc")` line containing no type errors.
+TypeScript would not produce a new type error for the unnecessary comment directive:
+
+```ts twoslash
+declare function process(data: string): void;
+
+// @ts-ignore
+process("abc");
+```
+
+There are very few times when `// @ts-ignore` should be used instead of `// @ts-expect-error`.
+Using `// @ts-expect-error` instead of `// @ts-ignore` ensures TypeScript will report when a comment directive is no longer needed.
+Unnecessary comment directives are misleading and take up space.
+
+:::tip
+[Choosing the Right Comment Directive](#choosing-the-right-comment-directive) covers the rare cases when `// @ts-ignore` is preferable over `// @ts-expect-error`.
+:::
+
+### `@ts-nocheck`
+
+Many TypeScript projects are written completely or mostly with TypeScript syntax and are fully type checked.
+However, some TypeScript projects contain JavaScript files that haven't been structured in ways that are type-safe.
+Attempting to run type checking on files in those projects can sometimes result in many erroneous type errors.
+
+Suppose a `utilities.js` file defines and exports a `weaklyTyped` object whose types are inferred incorrectly by TypeScript.
+Each usage of that `weaklyTyped` object in another file, `index.ts`, might incur a type error:
+
+<Tabs>
+<TabItem value="index.ts">
+
+```ts twoslash
+// @errors: 2339
+// @checkJs
+// @filename: utilities.js
+export const weaklyTyped = {};
+// @filename: index.ts
+// ---cut---
+import { weaklyTyped } from "./utilities.js";
+
+weaklyTyped.log("Hello");
+weaklyTyped.log("world");
+```
+
+</TabItem>
+<TabItem value="utilities.js">
+
+```ts twoslash
+// TODO: Convert to TypeScript
+export const weaklyTyped = {};
+
+Object.assign(weaklyTyped, {
+  log: console.log.bind(console),
+});
+```
+
+</TabItem>
+</Tabs>
+
+TypeScript provides a `// @ts-nocheck` comment directive that disables type checking for an entire file.
+Placing `// @ts-nocheck` at the top of a file stops TypeScript from reporting any type errors on the file.
+
+Adding a `// @ts-check` at the top of the `index.ts` file would prevent TypeScript from reporting type errors from using `weaklyTyped`:
+
+```ts twoslash
+// @filename: utilities.js
+export const weaklyTyped = {};
+// @filename: index.ts
+// ---cut---
+// @ts-nocheck
+import { weaklyTyped } from "./utilities.js";
+
+weaklyTyped.log("Hello"); // No type error ✅
+weaklyTyped.log("world"); // No type error ✅
+```
+
+:::caution
+`// @ts-nocheck` is even more unsafe than `// @ts-expect-error` and `// @ts-ignore`.
+It should only be used as a stopgap until files are refactored to have proper types.
+:::
+
+### `@ts-check`
+
+`// @ts-check` is the opposite of `// @ts-ignore`: instead of disabling type checking for a file, it _enables_ type checking for the file.
+This can be useful in projects where TypeScript sees JavaScript files with the [`allowJs` compiler option](https://www.typescriptlang.org/tsconfig/#allowJs) and doesn't type check them with [`checkJs` compiler option](https://www.typescriptlang.org/tsconfig/#checkJs).
+Placing `// @ts-check` at the top of a JavaScript file allows easing into type checking for just that file - without enabling type checking on all files.
+
+Take the following `index.js` file as an example.
+With TypeScript set to `allowJs`, it wouldn't have a type error reported for passing a `string` argument to a function parameter of type `number`.
+But with `// @ts-check`, that type error would be reported:
+
+<Tabs>
+<TabItem value="Without // @ts-check">
+
+```ts twoslash title="index.js"
+// @filename: index.js
+// ---cut---
+/** @param {number} value */
+function double(value) {
+  return value * 2;
+}
+
+console.log(double(1));
+console.log(double("2")); // Should be a type error, but isn't ❌
+```
+
+</TabItem>
+<TabItem value="With // @ts-check">
+
+```ts twoslash title="index.js"
+// @errors: 2345
+// @filename: index.js
+// ---cut---
+// @ts-check
+/** @param {number} value */
+function double(value) {
+  return value * 2;
+}
+
+console.log(double(1));
+console.log(double("2"));
+```
+
+</TabItem>
+</Tabs>
+
+:::tip
+See [JS Projects Utilizing TypeScript](https://www.typescriptlang.org/docs/handbook/intro-to-js-ts.html) in the TypeScript Handbook for using TypeScript on files not using TypeScript's syntax.
+:::
+
+## Best Practices
+
+Comment directives are an "escape hatch": they allow switching small parts of a project to different type checking behavior.
+Escape hatches should be used with extreme caution and only when they are absolutely necessary.
+
+### Avoiding Comment Directives
+
+If at all possible, don't use comment directives to suppress type errors.
+
+Comment directives are a blunt instrument: they apply to an entire area of code.
+There is no way to specify a specific type error to target in comment directives.
+
+Suppressing type errors with comment directives is a "bandaid" fix: it doesn't address whatever root issue caused the incorrect type error to begin with.
+When possible, it's better to improve TypeScript's understanding of code.
+
+Consider trying the following strategies for fixing types before falling back to a comment directive.
+
+#### Correcting Incorrect Types
+
+If you know the types for code are incorrect, the best outcome is generally to fix those types.
+That includes `declare` statements as well as `.d.ts` files in your project and in dependencies.
+
+In the `process` example from earlier, a `// @ts-expect-error` was used because the the declared type for `process` was incorrect.
+The `// @ts-expect-error` was no longer necessary once the type for `process` was fixed.
+Good!
+
+If your project uses types from community-authored `@types/` packages published by [DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped), you may find incorrect definitions within your `node_modules/`.
+Those can be fixed at the source by sending a pull request to DefinitelyTyped.
+Doing so will fix the types for your project -- as well as for any other consumers of that package.
+
+:::tip
+The [`patch-package` package](https://npmjs.com/package/patch-package) applies changes to `node_modules/` packages.
+You can use it to apply changes locally from in-progress DefinitelyTyped pull requests.
+:::
+
+#### Refactoring for Type Safety
+
+#### Type Assertions
+
+### Choosing The Right Comment Directive
+
+{/* `// @ts-expect-error` or `// @ts-ignore`? */}
+
+### Comment Directive Explanations
+
+Comment directives such as `// @ts-expect-error` can also include more text.
+TypeScript developers will often use this to include explanations for the comment directive.
+Comment directive explanations are generally considered a best practice, so readers of the code understand why the comment directive is necessary.
+
+This expanded comment from before explains the context for why `process`'s types are wrong:
+
+```ts twoslash
+declare function process(data: number): void;
+
+// @ts-expect-error -- Pending 'process' being fixed to take in string.
+process("abc"); // No type error ✅
+```
+
+### Linting Comment Directives
+
+[`@typescript-eslint/ban-comment`](https://typescript-eslint.io/rules/ban-ts-comment) can be used to enforce best practices with TypeScript's comment directives.
+By default, the rule:
+
+- Always reports on `@ts-ignore` and `@ts-nocheck` comment directives
+- Reports on `@ts-expect-error` directives that don't have an explanatory comment description
+- Requires explanatory comment descriptions contain at least 3 characters
+
+For example, suppose `"@example/package"` exports a `process` function that should take in a `string` but whose types incorrectly indicate take in a `number`.
+A `// @ts-expect-error` comment could be used to tell TypeScript to ignore the line:
+
+<Tabs>
+<TabItem value="❌ Incorrect">
+
+```ts
+import { process } from "@example/package";
+
+// @ts-ignore
+process("New York City");
+```
+
+</TabItem>
+<TabItem value="✅ Correct">
+
+```ts
+import { process } from "@example/package";
+
+// @ts-expect-error -- pending updating the process types
+process("New York City");
+```
+
+</TabItem>
+</Tabs>
+
+Teams using issue trackers such as GitHub Issues or Jira will often prefer to include links to tracking tickets in todo comments.
+Doing so can help ensure the reason for the comment gets documented more fully, and isn't forgotten about later.
+
+[`@typescript-eslint/ban-comment`'s `descriptionFormat` option](https://typescript-eslint.io/rules/ban-ts-comment#descriptionformat) can be used to enforce comments align to a certain format.
+Teams can use that to enforce the explanation for a comment directive includes a link to a tracking issue.
+
+For example, given the following ESLint config, comment directives must include a `-- TODO(GH-*)` linking to an issue:
+
+```ts
+export default tseslint.config({
+  // ...
+  rules: {
+    "@typescript-eslint/ban-comment": [
+      "error",
+      {
+        descriptionFormat: "^ -- TODO\\(GH-\\d+\\)",
+      },
+    ],
+  },
+});
+```
+
+<Tabs>
+<TabItem value="❌ Incorrect">
+
+```ts
+import { process } from "@example/package";
+
+// @ts-expect-error -- pending updating the process types
+process("New York City");
+```
+
+</TabItem>
+<TabItem value="✅ Correct">
+
+```ts
+import { process } from "@example/package";
+
+// @ts-expect-error -- TODO(GH-1234): pending updating the process types
+process("New York City");
+```
+
+</TabItem>
+</Tabs>
+
+See [typescript-eslint's Getting Started guide](https://typescript-eslint.io/getting-started) to enable `@typescript-eslint/ban-comment` and other recommended rules.
+
+Equivalent lint rules in other common linters are:
+
+- Biome: [`nursery/noTsComment`](https://github.com/biomejs/biome/issues/713)
+- Deno: [`ban-ts-comment`](https://lint.deno.land/rules/ban-ts-comment)
+- Oxlint: [`typescript/ban-ts-comment`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/ban-ts-comment.html)
+
+## Comment Directives in Other Tools
+
+### Linter Comment Directives
+
+[Linters are not the same tools as type checkers](TODO).
+Linters such as ESLint have their own comment directives that can reconfigure the linter on a per-file or per-line basis.
